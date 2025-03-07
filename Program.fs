@@ -86,10 +86,12 @@ let rec eval (e:Environment) (expr:Expr) =
 
 
 
-let s = ""
-
-let l = List.ofSeq s
-
+type Token = 
+    | LP   // (
+    | RP   // )
+    | ID of string
+    | BinOp of BinOp
+    | Not
 
 
 
@@ -106,6 +108,23 @@ let isWhiteSpace = function
     | ' ' | '\n' | '\t' -> true
     | _ -> false
 
+let digits = Set.ofSeq "1234567890"
+let charsStr = "abcdefghijklmnopqrstuvw"
+let lowerChars = Set.ofSeq charsStr
+let upperChars = Set.ofSeq <| charsStr.ToUpper()
+
+let letters = Set.union lowerChars upperChars
+let lettersAndDigits = Set.union letters digits
+
+let isIdentifier (s:string) =
+    let contains = Set.contains
+    let forall = Seq.forall
+
+    s.Length > 0 && 
+    letters.Contains s[0] &&
+    s[1..] |> forall (lettersAndDigits.Contains)
+
+    
     
 let rec skipBlanks (l:List<char>) = seq {
     match l with 
@@ -114,9 +133,9 @@ let rec skipBlanks (l:List<char>) = seq {
     | _->  yield! recognize l ""}
 
 
-and recognize l s = 
-    let nonEmptyS = [if s <> "" then yield s]
-    let proceed ss t = seq {
+and recognize l s :seq<Token> = 
+    let nonEmptyS = [if s <> "" then yield ID s]
+    let proceed (ss:Token) t = seq {
         yield! nonEmptyS
         yield ss
         yield! skipBlanks t
@@ -124,54 +143,82 @@ and recognize l s =
 
     match l with
     | [] -> 
-        seq { yield s }
+        seq { yield ID s }
     | SP::t -> 
-        seq { yield s; yield! skipBlanks t}
-    | DASH::GT::t -> 
-        proceed "->" t
-    | '('::t | ')'::t -> 
-        proceed $"{l.Head}" t
+        seq { yield ID s; yield! skipBlanks t}
+    | DASH::GT::t -> proceed (BinOp Impl) t
+    | '('::t -> proceed LP t
+    | ')'::t -> proceed RP t
+    | '&'::t -> proceed (BinOp And) t
+    | '|'::t -> proceed (BinOp Or) t
+    | '-'::t -> proceed (Token.Not) t
     | h::t -> 
         recognize t $"{s}{h}"
    
 
+type TokenizationError = BadIdentifier of string 
+type TokenizationResult = Result< seq<Token>, TokenizationError >
+
+let (|SeqEmpty|LookAhead1|) (xs: 'a seq) = 
+  if Seq.isEmpty xs then SeqEmpty
+  else LookAhead1(Seq.head xs, Seq.skip 1 xs)
+
+
+let (|LookAhead2|_|) (xs: 'a seq) =
+    match xs with
+    | SeqEmpty -> None
+    | LookAhead1 (h, t) -> 
+        match t with 
+        | SeqEmpty -> None
+        | LookAhead1 (h2, t) -> Some (h,h2, t)
 
 
 
-for s in skipBlanks (List.ofSeq "hello world  (blah)  I am  he->re   now") do
-    printfn "%A" s
+// let l = [1;2;3;4;5;45]
+
+// match l with
+// | LookAhead2 (a,b,t) -> 
+//     printfn "2: %A" (a,b,t)
+
+// | LookAhead1 (a,tail) -> 
+//     printfn "1: %A" a
+
+// | SeqEmpty -> 
+//     printfn "empty" 
+
+
+let validate (tokensIn:seq<Token>) : TokenizationResult =
+    let rec validate' (tokens:seq<Token>) : TokenizationResult = 
+        match tokens with      
+        | SeqEmpty -> Result.Ok (tokensIn)
+        | LookAhead1 (ID ident,t) -> 
+            if isIdentifier ident then 
+                validate' t
+            else 
+                Result.Error <| BadIdentifier ident
+        | LookAhead1 (_, t) ->
+            validate' t
+          
+
+    validate' tokensIn
+
     
+    
+printfn "Stage 1:"
+let tokens = skipBlanks (List.ofSeq "hello -world  --(  blah)  I am  he->re   now" )
+
+for s in tokens do 
+    printfn "%A" s
+
+printfn "Stage 2:"
+let res = validate tokens 
+match res with
+| Error e -> 
+    printfn "%A" e
+| _ -> 
+    printfn "Success"
 
 
-// let qq () = seq {
-//     printfn "calling q"
-//     yield 55
-// } 
-
-// let rec ss (n:int) = seq {
-//     printfn "Calling ss with %A" n
-//     yield n
-//     yield! (ss (n-1))
-
-// }
-
-
-// let uu = Seq.cache <| ss 12
-// let tt = (Seq.tail (Seq.tail uu))
-// let _ = Seq.head tt
-
-// printfn "-----"
-
-// let vv = Seq.tail tt
-// let _ = Seq.head vv
-
-
-
-let ss = "hello world"
-
-let aa = Seq.tail (Seq.tail ss)
-
-printfn "tail tail : %A" <| Seq.head aa
 
 
 
