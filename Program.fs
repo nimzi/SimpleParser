@@ -86,6 +86,21 @@ let rec eval (e:Environment) (expr:Expr) =
 
 
 
+let (|SeqEmpty|LookAhead1|) (xs: 'a seq) = 
+  if Seq.isEmpty xs then SeqEmpty
+  else LookAhead1(Seq.head xs, Seq.skip 1 xs)
+
+
+let (|LookAhead2|_|) (xs: 'a seq) =
+    match xs with
+    | SeqEmpty -> None
+    | LookAhead1 (h, t) -> 
+        match t with 
+        | SeqEmpty -> None
+        | LookAhead1 (h2, t) -> Some (h,h2, t)
+
+
+
 type Token = 
     | LP   // (
     | RP   // )
@@ -125,11 +140,14 @@ let isIdentifier (s:string) =
     s[1..] |> forall (lettersAndDigits.Contains)
 
     
-    
-let rec skipBlanks (l:List<char>) = seq {
+
+let inline (++) (a:char) (b:seq<char>) = Seq.append (Seq.singleton a) b 
+
+
+let rec skipBlanks (l:seq<char>) = seq {
     match l with 
-    | a::b::tail when isWhiteSpace a && isWhiteSpace b-> yield! skipBlanks (b::tail)
-    | a::tail when isWhiteSpace a -> yield! recognize tail ""
+    | LookAhead2(a,b,tail) when isWhiteSpace a && isWhiteSpace b-> yield! skipBlanks (b ++ tail)
+    | LookAhead1(a,tail) when isWhiteSpace a -> yield! recognize tail ""
     | _->  yield! recognize l ""}
 
 
@@ -142,49 +160,21 @@ and recognize l s :seq<Token> =
     }
 
     match l with
-    | [] -> 
+    | SeqEmpty -> 
         seq { yield ID s }
-    | SP::t -> 
+    | LookAhead1(SP,t) -> 
         seq { yield ID s; yield! skipBlanks t}
-    | DASH::GT::t -> proceed (BinOp Impl) t
-    | '('::t -> proceed LP t
-    | ')'::t -> proceed RP t
-    | '&'::t -> proceed (BinOp And) t
-    | '|'::t -> proceed (BinOp Or) t
-    | '-'::t -> proceed (Token.Not) t
-    | h::t -> 
-        recognize t $"{s}{h}"
+    | LookAhead2(DASH,GT,t) -> proceed (BinOp Impl) t
+    | LookAhead1('(',t) -> proceed LP t
+    | LookAhead1(')',t) -> proceed RP t
+    | LookAhead1('&',t) -> proceed (BinOp And) t
+    | LookAhead1('|',t) -> proceed (BinOp Or) t
+    | LookAhead1('-',t) -> proceed Not t
+    | LookAhead1(h,t) ->  recognize t $"{s}{h}"
    
 
 type TokenizationError = BadIdentifier of string 
 type TokenizationResult = Result< seq<Token>, TokenizationError >
-
-let (|SeqEmpty|LookAhead1|) (xs: 'a seq) = 
-  if Seq.isEmpty xs then SeqEmpty
-  else LookAhead1(Seq.head xs, Seq.skip 1 xs)
-
-
-let (|LookAhead2|_|) (xs: 'a seq) =
-    match xs with
-    | SeqEmpty -> None
-    | LookAhead1 (h, t) -> 
-        match t with 
-        | SeqEmpty -> None
-        | LookAhead1 (h2, t) -> Some (h,h2, t)
-
-
-
-// let l = [1;2;3;4;5;45]
-
-// match l with
-// | LookAhead2 (a,b,t) -> 
-//     printfn "2: %A" (a,b,t)
-
-// | LookAhead1 (a,tail) -> 
-//     printfn "1: %A" a
-
-// | SeqEmpty -> 
-//     printfn "empty" 
 
 
 let validate (tokensIn:seq<Token>) : TokenizationResult =
@@ -205,13 +195,14 @@ let validate (tokensIn:seq<Token>) : TokenizationResult =
     
     
 printfn "Stage 1:"
-let tokens = skipBlanks (List.ofSeq "hello -world  --(  blah)  I am  he->re   now" )
+let tokens = skipBlanks "hello -world  --(  bl | ah )  I & am  he->re   now" 
 
 for s in tokens do 
     printfn "%A" s
 
 printfn "Stage 2:"
 let res = validate tokens 
+
 match res with
 | Error e -> 
     printfn "%A" e
@@ -220,9 +211,11 @@ match res with
 
 
 
-
-
-
+// TODO:
+// 1. Add tokenizing code for XOR operator as |+|
+// 2. Modify validator code to report on all bad identifiers that occur
+// 3. Have the program take input from the command line instead of a constant string
+// 4. Think about using the same techniques to construct a syntax tree from the string
 
 
 
