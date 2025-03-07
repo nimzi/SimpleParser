@@ -212,7 +212,7 @@ match res with
 
 
 // TODO:
-// 1. Add tokenizing code for XOR operator as |+|
+// 1. Add tokenizing code for XOR operator as |+|. To this end you will need to create an active pattern LookAhead3
 // 2. Modify validator code to report on all bad identifiers that occur
 // 3. Have the program take input from the command line instead of a constant string
 // 4. Think about using the same techniques to construct a syntax tree from the string
