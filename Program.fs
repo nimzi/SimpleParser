@@ -62,30 +62,6 @@ let rec eval (e:Environment) (expr:Expr) =
 
 
 
-// open System.Text.RegularExpressions
-
-// let rx = Regex("\s+.+\s", RegexOptions.None )
-
-// let str = "      (dd    dd   aa)"
-
-// let out = rx.Match(str)
-
-// printfn "Out %A: " out.Groups
-
-
-// let s = "You win     some. You lose some.";
-
-// let  subs = s.Split();
-
-// printfn "%A" subs
-
-
-// printfn "Index %A" m.Index
-// printfn "%A" m.Success
-// printfn "%A" m.Groups
-
-
-
 let (|SeqEmpty|LookAhead1|) (xs: 'a seq) = 
   if Seq.isEmpty xs then SeqEmpty
   else LookAhead1(Seq.head xs, Seq.skip 1 xs)
@@ -98,6 +74,33 @@ let (|LookAhead2|_|) (xs: 'a seq) =
         match t with 
         | SeqEmpty -> None
         | LookAhead1 (h2, t) -> Some (h,h2, t)
+
+let (|LookAhead3|_|) (xs: 'a seq) =
+    match xs with
+    | LookAhead2 (h, h2, t) -> 
+        match t with 
+        | SeqEmpty -> None
+        | LookAhead1 (h3, t) -> Some (h,h2, h3, t)
+    | _ -> None
+
+let (|LookAhead4|_|) (xs: 'a seq) =
+    match xs with
+    | LookAhead3 (h, h2,h3, t) -> 
+        match t with 
+        | SeqEmpty -> None
+        | LookAhead1 (h4, t) -> Some (h,h2,h3,h4, t)
+    | _ -> None
+
+let (|LookAhead5|_|) (xs: 'a seq) =
+    match xs with
+    | LookAhead4 (h, h2,h3,h4, t) -> 
+        match t with 
+        | SeqEmpty -> None
+        | LookAhead1 (h5, t) -> Some (h,h2,h3,h4, h5, t)
+    | _ -> None
+    
+
+
 
 
 
@@ -162,7 +165,7 @@ and recognize l s :seq<Token> =
     match l with
     | SeqEmpty -> 
         seq { yield ID s }
-    | LookAhead1(SP,t) -> 
+    | LookAhead1(a,t) when isWhiteSpace a -> 
         seq { yield ID s; yield! skipBlanks t}
     | LookAhead2(DASH,GT,t) -> proceed (BinOp Impl) t
     | LookAhead1('(',t) -> proceed LP t
@@ -170,7 +173,7 @@ and recognize l s :seq<Token> =
     | LookAhead1('&',t) -> proceed (BinOp And) t
     | LookAhead1('|',t) -> proceed (BinOp Or) t
     | LookAhead1('-',t) -> proceed Not t
-    | LookAhead1(h,t) ->  recognize t $"{s}{h}"
+    | LookAhead1(h,t) ->  recognize t $"{s}{h}" // ?
    
 
 type TokenizationError = BadIdentifier of string 
@@ -195,7 +198,7 @@ let validate (tokensIn:seq<Token>) : TokenizationResult =
     
     
 printfn "Stage 1:"
-let tokens = skipBlanks "hello -world  --(  bl | ah )  I & am  he->re   now" 
+let tokens = skipBlanks "hello -World  --(  bl | ah )  I & am  he->re   now" 
 
 for s in tokens do 
     printfn "%A" s
@@ -203,12 +206,83 @@ for s in tokens do
 printfn "Stage 2:"
 let res = validate tokens 
 
+
+// 
+// E -> ID | (E op E) | (E) | -E 
+
+
+// -ID -> E
+// -E -> E
+// (ID) -> E 
+// (E) -> E
+// (ID op ID) -> E
+// (ID op E) -> E
+// (E op ID) -> E
+// (E) -> E
+//
+
+
+
+let matchOp (l:seq<Token>) =
+    match l with 
+    | LookAhead1 (Token.BinOp op, tail) -> (op, tail)
+    | _ -> failwith ""
+
+let matchToken (t:Token) (l:seq<Token>) = 
+    match l with 
+    | LookAhead1 (t, tail) -> tail |> Some
+    | _-> None
+
+let matchIdent (l:seq<Token>) = 
+    match l with
+    | LookAhead1 (Token.ID x, tail) -> x, tail
+    | _ -> failwith ""
+
+
+
+let rec parseTerm(stream:seq<Token>): Option<Expr * seq<Token>> = 
+    match stream with 
+    | LookAhead2(Not, ID x, tail) -> (Expr.Not(Symbol x) , tail) |> Some
+    | LookAhead1(ID x, tail) -> (Symbol x , tail) |> Some
+//    | LookAhead3(ID x, BinOp op, ID y) -> 
+//    | LookAhead5(LP, ID l, BinOp op, ID r, RP, tail ) -> ( Expr.BinOp (op, Symbol l, Symbol r), tail) |> Some
+    | _ -> None
+and parseExp(stream:seq<Token>):Option<Expr * seq<Token>> =
+    let mainCase () =
+        let matchT token (e:Expr,t:seq<Token>) =
+            matchToken token t 
+            |> Option.map (fun nextTail -> (e,nextTail)) 
+
+        match stream with 
+        | SeqEmpty -> None // maybe give it more thought
+        | LookAhead1(Not, tail) ->
+            parseExp(tail) |> Option.map (fun (e,t) -> (Expr.Not(e), t))
+        | LookAhead1(LP, tail) -> // left paren case
+            match parseExp(tail) with
+            | Some (firstExp, next) -> 
+                match next with
+                | LookAhead1 (RP, rest) -> // (E) case
+                    (firstExp,rest) |> Some
+                | LookAhead1 (BinOp op, rest) -> 
+                    parseExp (rest) 
+                    |> Option.bind (fun (secondExp,t) -> (Expr.BinOp(op,firstExp,secondExp),t) |> Some )
+                    |> Option.bind (matchT RP)
+                | _-> None                 
+            | None -> None
+        | _ -> None
+        
+
+    match parseTerm stream with
+    | Some (e, tail) -> Some (e, tail) // also should look if at end maybe?
+    | None -> mainCase()
+
+
+
 match res with
 | Error e -> 
     printfn "%A" e
 | _ -> 
     printfn "Success"
-
 
 
 // TODO:
