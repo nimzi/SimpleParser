@@ -30,10 +30,10 @@ let A = Symbol "A"
 let B = Symbol "B"
 let nB = - B
 
-let xx = B + (A * (- B)) --> B
+// let xx = B + (A * (- B)) --> B
 
-printfn "%A" xx
-printfn "%s" (xx.toPrettyString())
+// printfn "%A" xx
+// printfn "%s" (xx.toPrettyString())
 
 let rec allSymbols e = 
     seq {
@@ -164,9 +164,9 @@ and recognize l s :seq<Token> =
 
     match l with
     | SeqEmpty -> 
-        seq { yield ID s }
+        seq { yield! nonEmptyS}
     | LookAhead1(a,t) when isWhiteSpace a -> 
-        seq { yield ID s; yield! skipBlanks t}
+        seq { yield! nonEmptyS; yield! skipBlanks t}
     | LookAhead2(DASH,GT,t) -> proceed (BinOp Impl) t
     | LookAhead1('(',t) -> proceed LP t
     | LookAhead1(')',t) -> proceed RP t
@@ -195,50 +195,14 @@ let validate (tokensIn:seq<Token>) : TokenizationResult =
 
     validate' tokensIn
 
-    
-    
-printfn "Stage 1:"
-let tokens = skipBlanks "hello -World  --(  bl | ah )  I & am  he->re   now" 
 
-for s in tokens do 
-    printfn "%A" s
-
-printfn "Stage 2:"
-let res = validate tokens 
-
-
-// 
-// E -> ID | (E op E) | (E) | -E 
-
-
-// -ID -> E
-// -E -> E
-// (ID) -> E 
-// (E) -> E
-// (ID op ID) -> E
-// (ID op E) -> E
-// (E op ID) -> E
-// (E) -> E
-//
-
-
-
-let matchOp (l:seq<Token>) =
-    match l with 
-    | LookAhead1 (Token.BinOp op, tail) -> (op, tail)
-    | _ -> failwith ""
+// brings in option CE
+open FsToolkit.ErrorHandling
 
 let matchToken (t:Token) (l:seq<Token>) = 
     match l with 
     | LookAhead1 (t, tail) -> tail |> Some
     | _-> None
-
-let matchIdent (l:seq<Token>) = 
-    match l with
-    | LookAhead1 (Token.ID x, tail) -> x, tail
-    | _ -> failwith ""
-
-
 
 let rec parseTerm(stream:seq<Token>): Option<Expr * seq<Token>> = 
     match stream with 
@@ -247,28 +211,29 @@ let rec parseTerm(stream:seq<Token>): Option<Expr * seq<Token>> =
 //    | LookAhead3(ID x, BinOp op, ID y) -> 
 //    | LookAhead5(LP, ID l, BinOp op, ID r, RP, tail ) -> ( Expr.BinOp (op, Symbol l, Symbol r), tail) |> Some
     | _ -> None
+
 and parseExp(stream:seq<Token>):Option<Expr * seq<Token>> =
     let mainCase () =
-        let matchT token (e:Expr,t:seq<Token>) =
-            matchToken token t 
-            |> Option.map (fun nextTail -> (e,nextTail)) 
-
         match stream with 
         | SeqEmpty -> None // maybe give it more thought
         | LookAhead1(Not, tail) ->
-            parseExp(tail) |> Option.map (fun (e,t) -> (Expr.Not(e), t))
+            option {
+                let! (e,t) = parseExp(tail) 
+                return (Expr.Not(e), t)
+            }
         | LookAhead1(LP, tail) -> // left paren case
-            match parseExp(tail) with
-            | Some (firstExp, next) -> 
+            option {
+                let! firstExp, next = parseExp(tail)
                 match next with
                 | LookAhead1 (RP, rest) -> // (E) case
-                    (firstExp,rest) |> Some
-                | LookAhead1 (BinOp op, rest) -> 
-                    parseExp (rest) 
-                    |> Option.bind (fun (secondExp,t) -> (Expr.BinOp(op,firstExp,secondExp),t) |> Some )
-                    |> Option.bind (matchT RP)
-                | _-> None                 
-            | None -> None
+                    return firstExp, rest
+                | LookAhead1 (BinOp op, rest) -> // (E op E) case
+                    let! secondExp, penultimateTail = parseExp rest
+                    let! ultimateTail = matchToken RP penultimateTail
+                    return Expr.BinOp(op,firstExp,secondExp), ultimateTail
+                | _-> 
+                    return! None
+            }
         | _ -> None
         
 
@@ -278,11 +243,37 @@ and parseExp(stream:seq<Token>):Option<Expr * seq<Token>> =
 
 
 
-match res with
+    
+
+
+let input = "(--((A|-B) | D) -> -(C & A))" 
+
+printfn "Input: %s" input 
+printfn ""
+printfn "Stage 1: Just tokenizing"
+let tokens = skipBlanks input
+for s in tokens do 
+    printf " %A, " s
+printfn ""
+printfn ""
+
+printfn "Stage 2: Validating identifiers"
+match validate tokens with
 | Error e -> 
     printfn "%A" e
-| _ -> 
+| Ok x -> 
     printfn "Success"
+    printfn ""
+    printfn "State 3: Parsing"
+    match parseExp x with
+    | Some (ee, tokens) -> 
+        printfn "Pretty AST: %s" (ee.toPrettyString())
+        printfn "Tail: %A" tokens
+    | _-> 
+        printfn "Parsing error"
+
+
+
 
 
 // TODO:
