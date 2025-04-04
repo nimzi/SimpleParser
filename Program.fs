@@ -237,10 +237,6 @@ and parseExp(stream:seq<Token>):Option<Expr * seq<Token>> =
     | None -> mainCase()
 
 
-
-    
-
-
 let input = "(--((A|-B) | D) -> -(C & A))" 
 
 printfn "Input: %s" input 
@@ -268,11 +264,64 @@ match validate tokens with
         printfn "Parsing error"
 
 
+printfn ""
+printfn "Multipass parser..."
+
+type TokenOrExp = Token of Token | Expr of Expr
+
+let initial = tokens |> Seq.map Token |> List.ofSeq
 
 
+let rec transform0 (stream:List<TokenOrExp>) = [
+    match stream with
+    | [] -> ()
+    | Token LP::TokenOrExp.Expr e::Token RP::rest ->
+        yield Expr e
+        yield! transform0 rest
+    | Expr a::Token(BinOp op)::Expr b::rest -> 
+        let xx = Expr.BinOp (op,a,b)
+        yield TokenOrExp.Expr xx
+        yield! transform0 rest
+    | Token Not::Expr e::rest  ->
+        yield Expr (Expr.Not (e)) 
+        yield! transform0 rest
+    | a::rest -> 
+        yield a
+        yield! transform0 rest
+]
+
+let rec transform (stream:List<TokenOrExp>) = [
+    match stream with
+    | [] -> ()
+    | Token (Token.Not)::Token (ID x)::rest ->
+        yield TokenOrExp.Expr <| Expr.Not(Symbol x)
+        yield! transform rest      
+    | Token (ID x)::Token(BinOp op)::Token(ID y)::rest -> 
+        yield TokenOrExp.Expr <| Expr.BinOp (op, Symbol x, Symbol y)
+        yield! transform rest
+    | Token (Token.ID x)::rest ->
+        yield Expr (Symbol x) 
+        yield! transform rest
+    | a::rest -> 
+        yield a
+        yield! transform rest
+    ]
 
 
+let start = transform initial 
+
+let rec finish l counter = 
+    let ll = transform0 l
+    if ll <> l then 
+        finish ll (counter+1)
+    else 
+        ll, counter
 
 
+let stuff, count = finish start 0
+for e in stuff do
+    match e with
+    | Expr ee -> printfn "Pretty: %s" (ee.toPrettyString())
+    | Token tt -> printfn "Token: %A" tt
 
-
+printfn "%A number of passes for %A number of tokens " count (List.length initial)
