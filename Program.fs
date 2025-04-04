@@ -30,11 +30,6 @@ let A = Symbol "A"
 let B = Symbol "B"
 let nB = - B
 
-// let xx = B + (A * (- B)) --> B
-
-// printfn "%A" xx
-// printfn "%s" (xx.toPrettyString())
-
 let rec allSymbols e = 
     seq {
         match e with 
@@ -273,14 +268,6 @@ match validate tokens with
         printfn "Parsing error"
 
 
-
-
-
-// TODO:
-// 1. Add tokenizing code for XOR operator as |+|. To this end you will need to create an active pattern LookAhead3
-// 2. Modify validator code to report on all bad identifiers that occur
-// 3. Have the program take input from the command line instead of a constant string
-// 4. Think about using the same techniques to construct a syntax tree from the string
 
 
 
