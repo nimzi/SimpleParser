@@ -22,7 +22,7 @@ type Expr =
         match x with 
         | Symbol a -> $"`{a}`"
         | BinOp (op, a, b) -> $"({a.toPrettyString()} {op.toString()} {b.toPrettyString()})"
-        | Not a -> "(- " + a.toPrettyString() + ")"
+        | Not a -> "~" + a.toPrettyString() 
     
 
 
@@ -307,6 +307,14 @@ let rec transform (stream:List<TokenOrExp>) = [
         yield! transform rest
     ]
 
+let rec improveExpression (e:Expr) =
+    match e with
+    | Expr.BinOp (op, a,b) -> Expr.BinOp (op, improveExpression a, improveExpression b)
+    | Expr.Not(Expr.Not(e)) -> improveExpression e
+    | Expr.Not(Expr.BinOp (BinOp.Or,a,b)) -> Expr.BinOp (And, Expr.Not (improveExpression a), Expr.Not (improveExpression b) )
+    | Expr.Not(Expr.BinOp (BinOp.And,a,b)) -> Expr.BinOp (Or, Expr.Not (improveExpression a), Expr.Not (improveExpression b) )
+    | _ -> e
+
 
 let start = transform initial 
 
@@ -323,5 +331,13 @@ for e in stuff do
     match e with
     | Expr ee -> printfn "Pretty: %s" (ee.toPrettyString())
     | Token tt -> printfn "Token: %A" tt
+
+match stuff with 
+| [Expr e] -> 
+    printfn "Successfuly parsed expression %s" <| e.toPrettyString()
+    printfn "Have an improved expression %s"  <| improveExpression(e).toPrettyString()
+| _ -> 
+    printfn "Failed to parse the expression..."
+
 
 printfn "%A number of passes for %A number of tokens " count (List.length initial)
