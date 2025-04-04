@@ -1,4 +1,6 @@
-﻿
+﻿open BlackFox.ColoredPrintf
+
+
 type BinOp = 
     And | Or | Impl | Xor 
     member x.toString() =
@@ -239,33 +241,33 @@ and parseExp(stream:seq<Token>):Option<Expr * seq<Token>> =
 
 let input = "(--((A|-B) | D) -> -(C & A))" 
 
-printfn "Input: %s" input 
+colorprintfn "$yellow[Sample Input:] %s" input 
 printfn ""
-printfn "Stage 1: Just tokenizing"
+colorprintfn "$yellow[Tokenizing:]"
 let tokens = skipBlanks input
 for s in tokens do 
     printf " %A, " s
 printfn ""
 printfn ""
 
-printfn "Stage 2: Validating identifiers"
+colorprintf "$yellow[Validating identifiers:] "
 match validate tokens with
 | Error e -> 
-    printfn "%A" e
+    colorprintfn "$red[%A]" e
 | Ok x -> 
-    printfn "Success"
+    colorprintfn "$green[Success]"
     printfn ""
-    printfn "State 3: Parsing"
+    colorprintfn "$yellow[Parsing using LL(k) strategy...]"
     match parseExp x with
     | Some (ee, tokens) -> 
         printfn "Pretty AST: %s" (ee.toPrettyString())
         printfn "Tail: %A" tokens
     | _-> 
-        printfn "Parsing error"
+        colorprintfn "$red[Parsing error]"
 
 
 printfn ""
-printfn "Multipass parser..."
+colorprintfn "$yellow[Parsing using rewrite rules...]"
 
 type TokenOrExp = Token of Token | Expr of Expr
 
@@ -334,10 +336,65 @@ for e in stuff do
 
 match stuff with 
 | [Expr e] -> 
-    printfn "Successfuly parsed expression %s" <| e.toPrettyString()
-    printfn "Have an improved expression %s"  <| improveExpression(e).toPrettyString()
+    colorprintfn "$green[Successfuly parsed expression:] %s" <| e.toPrettyString()
+    colorprintfn "$green[Improved expression:] %s"  <| improveExpression(e).toPrettyString()
 | _ -> 
-    printfn "Failed to parse the expression..."
+    colorprintfn "$red[Failed to parse the expression]"
 
 
-printfn "%A number of passes for %A number of tokens " count (List.length initial)
+colorprintfn "$green[%A passes for %A tokens]" count (List.length initial)
+printfn ""
+
+// run multipass parser in repl mode
+
+
+colorprintfn "$green[REPL for predicate logic. Compose expressions using operators &, |, and ->, also unary - :]"
+colorprintfn "$green[Type #quit to exit, #line for last input, #tokens for tokens]"
+let mutable should = true
+let mutable line = ""
+
+while should do 
+    colorprintf "$green[>>] "
+    let command = System.Console.ReadLine()
+    if command = "#quit" then 
+        should <- false
+    else if command = "#line" then
+        colorprintfn "$yellow[%s]" line
+    else if command = "#tokens" then
+        let tokens = skipBlanks line
+        colorprintf "$yellow[Tokens:] "
+        for s in tokens do
+            printf " %A, " s
+        printfn ""
+    else
+        line <- command
+        //printfn "You entered: %s" line
+        let tokens = skipBlanks line
+        // colorprintf "$yellow[Tokens:] "
+        // for s in tokens do 
+        //     printf " %A, " s
+        // printfn ""
+
+        match validate tokens with
+        | Ok stream ->
+            colorprintfn "$green[Valid identifiers]"
+            let start = tokens |> Seq.map Token |> List.ofSeq |> transform
+
+            let rec finish l counter = 
+                let ll = transform0 l
+                if ll <> l then 
+                    finish ll (counter+1)
+                else 
+                    ll, counter
+
+            let out, count = finish start 0
+
+            match out with
+            | [Expr e] -> 
+                colorprintfn "$green[Parsed expression: %s]" <| e.toPrettyString()
+            | _ ->
+                colorprintfn "$red[Parsing error]"
+
+        | Error e ->
+            colorprintfn "$red[%A]" e
+
