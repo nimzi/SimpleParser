@@ -1,5 +1,5 @@
 ﻿open BlackFox.ColoredPrintf
-
+open PrecParsing
 
 type BinOp = 
     And | Or | Impl | Xor 
@@ -12,6 +12,7 @@ type BinOp =
 
 type Expr = 
     | Symbol of string
+    | Paren of Expr
     | BinOp of BinOp * Expr * Expr 
     | Not of Expr 
 
@@ -25,18 +26,16 @@ type Expr =
         | Symbol a -> $"`{a}`"
         | BinOp (op, a, b) -> $"({a.toPrettyString()} {op.toString()} {b.toPrettyString()})"
         | Not a -> "~" + a.toPrettyString() 
+        | Paren e -> $"[{e.toPrettyString()}]"
     
-
-
-let A = Symbol "A"
-let B = Symbol "B"
-let nB = - B
 
 let rec allSymbols e = 
     seq {
         match e with 
         | Symbol s -> 
             yield s
+        | Paren e -> 
+            yield! allSymbols e
         | BinOp(op, a, b)->
             yield! allSymbols a
             yield! allSymbols b
@@ -98,9 +97,6 @@ let (|LookAhead5|_|) (xs: 'a seq) =
     
 
 
-
-
-
 type Token = 
     | LP   // (
     | RP   // )
@@ -109,9 +105,6 @@ type Token =
     | Not
 
 
-
-[<Literal>]
-let SP = ' '
 
 [<Literal>]
 let DASH = '-'
@@ -278,7 +271,7 @@ let rec transform0 (stream:List<TokenOrExp>) = [
     match stream with
     | [] -> ()
     | Token LP::TokenOrExp.Expr e::Token RP::rest ->
-        yield Expr e
+        yield TokenOrExp.Expr (Paren e)
         yield! transform0 rest
     | Expr a::Token(BinOp op)::Expr b::rest -> 
         let xx = Expr.BinOp (op,a,b)
@@ -334,11 +327,24 @@ for e in stuff do
     | Expr ee -> printfn "Pretty: %s" (ee.toPrettyString())
     | Token tt -> printfn "Token: %A" tt
 
+
+// Gather top-level operators
+let rec collectOps (ast:Expr) = // (oplist: BinOp list) = 
+    match ast with
+    | Expr.BinOp (op, l, r) -> 
+        (collectOps l) @ [op] @ (collectOps r)
+    | _ -> []
+let rec collectTrees (ast:Expr) = // (oplist: BinOp list) = 
+    match ast with
+    | Expr.BinOp (op, l, r) -> 
+        (collectTrees l) @ (collectTrees r)
+    | x -> [x]
+
 match stuff with 
 | [Expr e] -> 
     colorprintfn "$green[Successfuly parsed expression:] %s" <| e.toPrettyString()
     colorprintfn "$green[Improved expression:] %s"  <| improveExpression(e).toPrettyString()
-| _ -> 
+  | _ -> 
     colorprintfn "$red[Failed to parse the expression]"
 
 
@@ -346,8 +352,6 @@ colorprintfn "$green[%A passes for %A tokens]" count (List.length initial)
 printfn ""
 
 // run multipass parser in repl mode
-
-
 colorprintfn "$green[REPL for predicate logic. Compose expressions using operators &, |, and ->, also unary - :]"
 colorprintfn "$green[Type #quit to exit, #line for last input, #tokens for tokens]"
 let mutable should = true
@@ -370,10 +374,6 @@ while should do
         line <- command
         //printfn "You entered: %s" line
         let tokens = skipBlanks line
-        // colorprintf "$yellow[Tokens:] "
-        // for s in tokens do 
-        //     printf " %A, " s
-        // printfn ""
 
         match validate tokens with
         | Ok stream ->
@@ -392,6 +392,37 @@ while should do
             match out with
             | [Expr e] -> 
                 colorprintfn "$green[Parsed expression: %s]" <| e.toPrettyString()
+
+                let ops = collectOps e
+                printfn "Top-level ops: %A" (ops |> List.map (fun x -> x.toString()) |> String.concat ", ")
+
+                if not ops.IsEmpty then
+                    let trees = collectTrees e 
+                    printfn "Top-level trees:"
+                    for t in trees do
+                        printfn "%s" <| t.toPrettyString()
+                    
+                    let exp = {
+                        Operators = Array.ofList ops
+                        Atoms = Array.ofList trees
+                        }
+
+                    let precedence = function
+                    | BinOp.Impl -> 0
+                    | BinOp.Or -> 1
+                    | BinOp.And -> 2
+                    | BinOp.Xor -> 3
+
+                    let uu = parse precedence exp
+
+                    let rec copyTree (t:GenTree<Expr,BinOp>) =
+                        match t with
+                        | Val v -> v
+                        | Node (op, t1, t2) -> Expr.BinOp (op, copyTree t1, copyTree t2)
+
+                    let tt = copyTree uu
+
+                    colorprintfn "$green[Adjusted exp: %s]" <| tt.toPrettyString()
             | _ ->
                 colorprintfn "$red[Parsing error]"
 

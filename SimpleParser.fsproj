@@ -6,6 +6,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="DoublyLinkedList.fs" />
+    <Compile Include="PrecedenseParsing.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
